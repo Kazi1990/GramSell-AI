@@ -1,0 +1,32 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: gramsell-api
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 40
+      containers:
+        - image: REGION-docker.pkg.dev/PROJECT_ID/REPOSITORY/gramsell-api:TAG
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: production
+            - name: GOOGLE_GENAI_USE_VERTEXAI
+              value: "true"
+            - name: GOOGLE_CLOUD_PROJECT
+              value: PROJECT_ID
+            - name: GOOGLE_CLOUD_LOCATION
+              value: global
+            - name: GEMINI_MODEL
+              value: gemini-3.1-flash-lite
+            - name: VERTEX_DECISION_MODEL
+              value: gemini-3.1-flash-lite
+          resources:
+            limits:
+              cpu: "2"
+              memory: "2Gi"
