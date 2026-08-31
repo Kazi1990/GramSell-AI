@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     google_cloud_location: str = "global"
     google_genai_use_vertexai: bool = True
     gemini_model: str = "gemini-3.1-flash-lite"
+    gemini_fallback_model: str = "gemini-3.5-flash-lite"
     vertex_decision_model: str = "gemini-3.1-flash-lite"
     google_maps_api_key: str | None = None
     maps_mcp_url: str = "https://mapstools.googleapis.com/mcp"
@@ -27,6 +28,10 @@ class Settings(BaseSettings):
     database_pool_size: int = Field(default=5, ge=1, le=30)
     database_max_overflow: int = Field(default=10, ge=0, le=50)
     social_publish_providers: str = ""
+    firebase_auth_enabled: bool = True
+    firebase_project_id: str | None = None
+    google_search_grounding: bool = True
+    google_maps_grounding: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
@@ -37,9 +42,11 @@ class Settings(BaseSettings):
                 raise ValueError("Vertex AI must be enabled in production.")
             if not self.google_cloud_project:
                 raise ValueError("GOOGLE_CLOUD_PROJECT is required in production.")
-            if not self.internal_api_key and not self.auth_token_secret:
-                raise ValueError("AUTH_TOKEN_SECRET or INTERNAL_API_KEY is required in production.")
-            self.write_api_key_required = True
+            if not self.firebase_auth_enabled:
+                raise ValueError("Firebase Authentication must be enabled in production.")
+            if not self.firebase_project_id:
+                raise ValueError("FIREBASE_PROJECT_ID is required in production.")
+            self.write_api_key_required = False
         return self
 
 settings = Settings()
