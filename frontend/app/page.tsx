@@ -24,6 +24,21 @@ const languageLabels: Record<string, string> = {
 
 type AgentState = "idle" | "running" | "completed";
 
+function extractErrorMessage(data: any, fallback: string): string {
+  const detail = data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail
+      .map((item: any) => {
+        const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : "";
+        return field ? `${field}: ${item.msg}` : item.msg;
+      })
+      .filter(Boolean)
+      .join(" | ");
+  }
+  return fallback;
+}
+
 export default function Home() {
   const [sellerId, setSellerId] = useState("");
   const [authToken, setAuthToken] = useState("");
@@ -118,7 +133,7 @@ export default function Home() {
           })
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Seller profile could not be created.");
+        if (!response.ok) throw new Error(extractErrorMessage(data, "Seller profile could not be created."));
         setSellerId(String(data.seller_id));
         if (data.country && config[data.country]) setCountry(data.country);
         if (data.language) setLanguage(data.language);
@@ -129,7 +144,7 @@ export default function Home() {
           : { display_name: displayName, email, password, country, language, currency: config[country].currency };
         const response = await fetch(`${API}${endpoint}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Authentication failed.");
+        if (!response.ok) throw new Error(extractErrorMessage(data, "Authentication failed."));
         setAuthToken(data.access_token);
         setSellerId(String(data.seller_id));
         await loadFinancials(String(data.seller_id), data.access_token);
@@ -165,7 +180,7 @@ export default function Home() {
       body: JSON.stringify({ provider: paymentProvider, destination: paymentDestination.trim() })
     });
     const data = await response.json();
-    if (!response.ok) { setError(data.detail || "Payment destination could not be saved."); return; }
+    if (!response.ok) { setError(extractErrorMessage(data, "Payment destination could not be saved.")); return; }
     setPaymentInfo(data);
     setError("");
   }
@@ -175,7 +190,7 @@ export default function Home() {
     try {
       const response = await fetch(`${API}/api/weather/seller/${sellerId}/forecast?language=${encodeURIComponent(language)}&days=10`, { headers: authHeaders() });
       const data = await response.json();
-      if (!response.ok || !data.available) throw new Error(data.reason || "Weather forecast is unavailable.");
+      if (!response.ok || !data.available) throw new Error(data.reason || extractErrorMessage(data, "Weather forecast is unavailable."));
       setForecast(data.days || []);
     } catch (err) { setError(err instanceof Error ? err.message : "Weather forecast failed."); }
     finally { setForecastBusy(false); }
@@ -206,7 +221,7 @@ export default function Home() {
         setTranscribing(true);
         try {
           const response = await fetch(`${API}/api/media/speech/transcribe?language=${encodeURIComponent(language)}`, { method: "POST", headers: authHeaders(), body: form });
-          const data = await response.json(); if (!response.ok) throw new Error(data.detail || "Speech transcription failed.");
+          const data = await response.json(); if (!response.ok) throw new Error(extractErrorMessage(data, "Speech transcription failed."));
           setMessage(previous => previous ? `${previous} ${data.transcript}` : data.transcript);
         } catch (err) { setError(err instanceof Error ? err.message : "Speech transcription failed."); }
         finally { setTranscribing(false); }
@@ -220,7 +235,7 @@ export default function Home() {
     const form = new FormData(); form.append("image", file);
     try {
       const response = await fetch(`${API}/api/media/image/analyze?language=${encodeURIComponent(language)}`, { method: "POST", headers: authHeaders(), body: form });
-      const data = await response.json(); if (!response.ok) throw new Error(data.detail || "Image analysis failed.");
+      const data = await response.json(); if (!response.ok) throw new Error(extractErrorMessage(data, "Image analysis failed."));
       setResult({ image_analysis: data });
       const extracted = data.analysis?.product || data.analysis?.description;
       if (typeof extracted === "string" && extracted.trim()) setMessage(previous => previous ? `${previous}\n${extracted}` : extracted);
@@ -283,11 +298,11 @@ export default function Home() {
         try {
           const transcription = await fetch(`${API}/api/media/speech/transcribe?language=${encodeURIComponent(language)}&seller_id=${encodeURIComponent(sellerId)}`, { method: "POST", headers: authHeaders(), body: form });
           const transcriptData = await transcription.json();
-          if (!transcription.ok) throw new Error(transcriptData.detail || "Payment confirmation speech failed.");
+          if (!transcription.ok) throw new Error(extractErrorMessage(transcriptData, "Payment confirmation speech failed."));
           setPaymentTranscript(transcriptData.transcript);
           const confirmation = await fetch(`${API}/api/orders/${encodeURIComponent(paymentOrderId)}/payment/seller-confirm`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ transcript: transcriptData.transcript, source: "voice" }) });
           const confirmationData = await confirmation.json();
-          if (!confirmation.ok) throw new Error(confirmationData.detail || "Seller confirmation was not accepted.");
+          if (!confirmation.ok) throw new Error(extractErrorMessage(confirmationData, "Seller confirmation was not accepted."));
           setError(confirmationData.provider_verification_required ? "Seller confirmation recorded. Provider verification is still required before revenue is realized." : "Payment confirmation recorded.");
           await loadFinancials(sellerId, authToken);
         } catch (err) { setError(err instanceof Error ? err.message : "Payment confirmation failed."); }
@@ -302,7 +317,7 @@ export default function Home() {
     <main className="page">
       <header className="topbar"><div className="brand">GramSell <span>AI</span></div><div className="topbarRight"><div className="statusPill"><i /> Live Intelligence</div>{authToken ? <button className="authButton" onClick={logout}>Sign out</button> : null}</div></header>
       <section className="content">
-        {!authToken && <section className="card authCard"><div className="cardHeader"><div><h2>{authMode === "login" ? "Seller sign in" : "Create seller account"}</h2><p>{firebaseConfigured ? "Firebase Authentication protects your account." : "Local development authentication is active."}</p></div><div className="liveDot"><i /> Protected</div></div><div className="authGrid">{authMode === "register" && <div className="field"><label>Display name</label><input value={displayName} onChange={e => setDisplayName(e.target.value)} /></div>}<div className="field"><label>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" /></div><div className="field"><label>Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={authMode === "login" ? "current-password" : "new-password"} /></div></div><div className="actions"><button className="primary" onClick={authenticate} disabled={authBusy}>{authBusy ? "Working..." : authMode === "login" ? "Sign in" : "Create account"}</button><button className="secondary" onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}>{authMode === "login" ? "Create account" : "Back to sign in"}</button></div></section>}
+        {!authToken && <section className="card authCard"><div className="cardHeader"><div><h2>{authMode === "login" ? "Seller sign in" : "Create seller account"}</h2><p>{firebaseConfigured ? "Firebase Authentication protects your account." : "Local development authentication is active."}</p></div><div className="liveDot"><i /> Protected</div></div><div className="authGrid">{authMode === "register" && <div className="field"><label>Display name</label><input value={displayName} onChange={e => setDisplayName(e.target.value)} /></div>}<div className="field"><label>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" /></div><div className="field"><label>Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={authMode === "login" ? "current-password" : "new-password"} /></div></div><div className="actions"><button className="primary" onClick={authenticate} disabled={authBusy}>{authBusy ? "Working..." : authMode === "login" ? "Sign in" : "Create account"}</button><button className="secondary" onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}>{authMode === "login" ? "Create account" : "Back to sign in"}</button></div>{error && <div className="error">{error}</div>}</section>}
 
         <div className="hero"><div><div className="eyebrow">REAL-TIME RURAL BUSINESS INTELLIGENCE</div><h1>One business team.<br /><span>Every product.</span></h1><p>Voice, image and text flow through grounded business intelligence. Real data only.</p></div><div className="heroOrb"><div className="orbCore" /></div></div>
         <div className="grid">
@@ -314,7 +329,7 @@ export default function Home() {
               <div className="row"><div className="field"><label>Language</label><select value={language} onChange={e => setLanguage(e.target.value)}>{config[country].languages.map(item => <option value={item} key={item}>{languageLabels[item] || item}</option>)}</select></div><div className="field"><label>Currency</label><input value={config[country].currency} readOnly /></div></div>
               <div className="field"><label>Business request</label><textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Speak, type, or add a product image..." /></div>
               <div className="actions"><button type="button" className={`secondary ${listening ? "active" : ""}`} onClick={startVoiceInput} disabled={transcribing}>{listening ? "Stop listening" : transcribing ? "Transcribing..." : "Speak"}</button><label className="secondary upload">{analyzingImage ? "Analyzing..." : "Add image"}<input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e => { const file = e.target.files?.[0]; if (file) analyzeImage(file); e.currentTarget.value = ""; }} /></label><button className="primary" onClick={runAgents} disabled={busy}>{busy ? "Agents working..." : "Run agents"}</button></div>
-              {error && <div className="error">{error}</div>}
+              {authToken && error && <div className="error">{error}</div>}
             </div>
           </div>
           <section className="card paymentCard"><div className="cardHeader"><div><h2>Real payment destination</h2><p>Use a real seller destination for the live payment demonstration. Provider verification remains separate.</p></div><div className="liveDot"><i /> Real destination</div></div><div className="row"><div className="field"><label>Provider</label><select value={paymentProvider} onChange={e => setPaymentProvider(e.target.value)}><option value="bkash">bKash</option><option value="nagad">Nagad</option><option value="upi">UPI</option><option value="eft">EFT</option></select></div><div className="field"><label>Seller destination</label><input value={paymentDestination} onChange={e => setPaymentDestination(e.target.value)} placeholder="Enter the seller's real payment destination" /></div></div><div className="actions"><button className="secondary" onClick={configurePayment}>Save payment destination</button></div>{paymentInfo && <div className="evidenceBar"><span>{paymentInfo.provider}</span><strong>{paymentInfo.destination}</strong><small>Real destination saved. Automatic verification requires the provider's official API or webhook.</small></div>}</section>
